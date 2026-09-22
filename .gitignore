@@ -1,0 +1,8 @@
+__pycache__/
+*.egg-info/
+dist/
+build/lib/
+build/bdist.*/
+build/scripts-*/
+build/osx/work/
+.DS_Store

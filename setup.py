@@ -1,21 +1,20 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-try:
-    from setuptools import setup
-except ImportError:
-    from distutils.core import setup
+from setuptools import setup
 
 setup(
     name='gEEProg',
-    version='2.0.1',
+    version='2.2.0',
     package_dir={'': 'src'},
     py_modules=['gEEProg'],
-    install_requires=['pyserial>=2.7'],
+    python_requires='>=3.8',
+    install_requires=['pyserial>=3.0'],
     author='Mark Chilenski',
     author_email='mark.chilenski@gmail.com',
     url='http://www.dasarodesigns.com/',
     description="GUI to control D'Asaro Designs EEPROM programmers.",
     long_description=open('README.rst', 'r').read(),
+    long_description_content_type='text/x-rst',
     license='GPL',
     scripts=['src/gEEProgGUI'],
     data_files=[('data/gEEProg', ['graphics/Icon.gif'])]

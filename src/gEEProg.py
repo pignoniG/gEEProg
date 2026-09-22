@@ -54,6 +54,23 @@ ERASE_STR = {
     '1400Prog': '3FFF' * (NUM_BYTES['1400Prog'] // 2)
 }
 
+# The programmer speaks plain ASCII. pyserial works with bytes under Python 3,
+# so all traffic is converted to/from str here. latin-1 maps every byte to a
+# character, so decoding never fails even if the unit returns junk.
+SERIAL_ENCODING = 'latin-1'
+
+def _write(port, text):
+    """Writes the str text to port."""
+    port.write(text.encode(SERIAL_ENCODING))
+
+def _read(port, size=1):
+    """Reads size bytes from port and returns them as a str."""
+    return port.read(size).decode(SERIAL_ENCODING)
+
+def _readline(port):
+    """Reads a line from port and returns it as a str."""
+    return port.readline().decode(SERIAL_ENCODING)
+
 # These are the supporting classes and functions:
 class InvalidResponseError(Exception):
     """Exception class for invalid responses from the programmer unit."""
@@ -74,15 +91,15 @@ def check_boolean(result, verb='???'):
     else:
         raise InvalidResponseError(
             'attempt to ' + verb +
-            ' returned invalid value: 0x' + result.encode('hex')
+            ' returned invalid value: 0x' + result.encode(SERIAL_ENCODING).hex()
         )
 
 def ask(port, command):
     """Writes command + VERB_TERMINATOR to port, then reads a line and returns
     the result with the \\r\\n stripped."""
-    port.write(command + VERB_TERMINATOR)
+    _write(port, command + VERB_TERMINATOR)
     # strip trailing \r\n -- don't use .strip, as it could mess up with raw hex data
-    return port.readline()[0:-2]
+    return _readline(port)[0:-2]
 
 # These are the backend commands governing what the hardware does.
 # Only use these if you know what you are doing with the hardware!
@@ -112,8 +129,8 @@ def fetch_buffer(port, num_bytes):
     """Command to fetch the contents of the hardware buffer. Gets fetched as a
     string representation of the hexadecimal, terminated with \\r\\n. Returns
     the string representation with terminator stripped."""
-    port.write('d' + VERB_TERMINATOR)
-    value = port.read(size=num_bytes * 2 + 2)  # account for termination
+    _write(port, 'd' + VERB_TERMINATOR)
+    value = _read(port, size=num_bytes * 2 + 2)  # account for termination
     value = value[0:-2]
     if len(value) != num_bytes * 2:
         raise InvalidResponseError('value read from hardware buffer is of incorrect length. Value read is: ' + value)
@@ -125,8 +142,8 @@ def send_to_buffer(port, inpt):
     which are verified."""
     if check_boolean(ask(port, 'l'), 'send to buffer'):
         for char in inpt:
-            port.write(char)
-            response = port.read(size=1)
+            _write(port, char)
+            response = _read(port, size=1)
             if response != char:
                 raise InvalidResponseError('Hardware echoed wrong value during send to buffer!')
     else:
@@ -136,22 +153,22 @@ def send_to_buffer(port, inpt):
 def clear_buffer(port):
     """Command to clear the hardware buffer. Returns True if success,
     False otherwise."""
-    return check_boolean(ask('c'), 'clear')
+    return check_boolean(ask(port, 'c'), 'clear')
 
 # These are the general-use commands:
 def enter_automation_mode(port):
     """Command to put programmer into automation mode. Needs special handling
     to clear the serial buffer properly independent of what was done before.
     Looks for the automation mode usage information to proceed."""
-    port.write(SERIAL_ESC)  # reset microcontroller
+    _write(port, SERIAL_ESC)  # reset microcontroller
     time.sleep(0.5)  # wait for serial to catch up
-    port.flushInput()  # flush whatever junk was waiting in the input buffer from previous actions
+    port.reset_input_buffer()  # flush whatever junk was waiting in the input buffer from previous actions
     time.sleep(0.1)
-    port.write('a' + VERB_TERMINATOR)  # send command for automation mode
+    _write(port, 'a' + VERB_TERMINATOR)  # send command for automation mode
     time.sleep(0.2)
-    port.readline()  # read and discard parroted response
+    _readline(port)  # read and discard parroted response
     time.sleep(0.2)
-    line = port.readline()  # read (what should be) usage prompt
+    line = _readline(port)  # read (what should be) usage prompt
     
     # check usage prompt -- if it doesn't print this, it didn't go into
     # automation mode properly, or the buffer is out of sync.
@@ -164,7 +181,7 @@ def enter_automation_mode(port):
 
 def exit_automation_mode(port):
     """Command to exit automation mode by sending ESC."""
-    port.write(SERIAL_ESC)
+    _write(port, SERIAL_ESC)
 
 def read_chip(port, num_bytes):
     """Command to read what is in the chip. Behind the scenes it reads the

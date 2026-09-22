@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright 2016 Mark Chilenski
 # This program is distributed under the terms of the GNU General Purpose License (GPL).
@@ -17,11 +17,9 @@
 #     You should have received a copy of the GNU General Public License
 #     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import division
-
-import Tkinter as tk
-import tkFont
-import tkFileDialog
+import tkinter as tk
+import tkinter.font as tkFont
+import tkinter.filedialog as tkFileDialog
 import string
 import serial
 import serial.tools.list_ports
@@ -34,7 +32,7 @@ import warnings
 import webbrowser
 import math
 
-__version__ = '2.1'
+__version__ = '2.2'
 
 NULL_PORT_NAME = "disconnected"
 SERIAL_TIMEOUT = 15
@@ -119,7 +117,7 @@ class HexCanvas(tk.Canvas):
         for d in self.data_text:
             self.delete(d)
         self.data_text = []
-        for i in xrange(0, self.nrow * self.ncol):
+        for i in range(0, self.nrow * self.ncol):
             self.data_text.append(
                 self.create_text(
                     *self.idx_to_coord(i),
@@ -280,7 +278,7 @@ class HexCanvas(tk.Canvas):
 def pairwise(iterable):
     "s -> (s0,s1), (s2,s3), (s4, s5), ..."
     a = iter(iterable)
-    return zip(a, a)
+    return list(zip(a, a))
 
 def scrub_hex(text):
     out = ''
@@ -299,7 +297,7 @@ class PortSelector(tk.Frame):
             self,
             value=NULL_PORT_NAME,
         )
-        self.current_port.trace('w', self.update_port)
+        self.current_port.trace_add('write', self.update_port)
         self.port_menu = tk.OptionMenu(
             self,
             self.current_port,
@@ -375,7 +373,7 @@ class PortSelector(tk.Frame):
         """
         ports = [NULL_PORT_NAME]
         for port in serial.tools.list_ports.comports():
-            ports.append(port[0])
+            ports.append(port.device)
         current_port = self.current_port.get()
         
         self.port_menu['menu'].delete(0, tk.END)
@@ -463,7 +461,7 @@ class GEEProgMainWindow(tk.Tk):
             print(sys.frozen)
             img_path = os.path.join(sys._MEIPASS, 'graphics/Icon.gif')
         else:
-            img_path = '../graphics/Icon.gif'
+            img_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'graphics', 'Icon.gif')
         # If Icon.gif isn't in the usual spots for git/frozen app, it must be
         # where pip puts it:
         try:
@@ -588,7 +586,7 @@ class GEEProgMainWindow(tk.Tk):
         
         description = tk.Label(
             top,
-            text=u"\u00A9 2016 Mark Chilenski\n"
+            text="\u00A9 2016 Mark Chilenski\n"
                   "GUI to control D'Asaro Designs EEPROM programmers.",
             justify=tk.LEFT
         )
@@ -657,8 +655,7 @@ class GEEProgMainWindow(tk.Tk):
         else:
             with open(filepath, 'rb') as f:
                 data = f.read()
-            for b in data:
-                read_str += b.encode('hex').upper()
+            read_str = data.hex().upper()
         if len(read_str) < 2 * gEEProg.NUM_BYTES[self.port_selector.type]:
             read_str += FILL_CHAR * (2 * gEEProg.NUM_BYTES[self.port_selector.type] - len(read_str))
         self.data = list(read_str)
@@ -686,13 +683,29 @@ class GEEProgMainWindow(tk.Tk):
                 outfile.write("".join(self.data[:num_chars]))
         else:
             with open(filepath, 'wb') as outfile:
-                for a, b in zip(self.data[:num_chars:2], self.data[1:num_chars:2]):
-                    outfile.write(chr(int(a + b, 16)))
+                outfile.write(bytes(
+                    int(a + b, 16)
+                    for a, b in zip(self.data[:num_chars:2], self.data[1:num_chars:2])
+                ))
         self.status_box.update_status("Wrote file.", "green")
+    
+    def check_connected(self):
+        """Returns True if a programmer is connected, otherwise reports it.
+        """
+        if self.port_selector.port is None:
+            self.status_box.update_status(
+                "No programmer connected! Select a serial port first.",
+                "yellow"
+            )
+            self.bell()
+            return False
+        return True
     
     def read(self):
         """Read the chip.
         """
+        if not self.check_connected():
+            return
         try:
             self.data = list(
                 gEEProg.read_chip(
@@ -710,6 +723,8 @@ class GEEProgMainWindow(tk.Tk):
     def program(self):
         """Program the chip.
         """
+        if not self.check_connected():
+            return
         try:
             # First check the buffer against the wordsize and warn if data are
             # being truncated:
@@ -735,11 +750,14 @@ class GEEProgMainWindow(tk.Tk):
                 self.bell()
             else:
                 self.status_box.update_status(*good_status)
-        except NotImplementedError:
+        except Exception:
+            traceback.print_exc()
             self.status_box.update_status("Could not perform program!", "red")
             self.bell()
     
     def verify(self):
+        if not self.check_connected():
+            return
         try:
             # First check the buffer against the wordsize and warn if data are
             # being truncated:
@@ -771,6 +789,8 @@ class GEEProgMainWindow(tk.Tk):
             self.bell()
     
     def erase(self):
+        if not self.check_connected():
+            return
         try:
             result = gEEProg.erase_chip(
                 self.port_selector.port,
