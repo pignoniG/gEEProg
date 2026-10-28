@@ -546,11 +546,17 @@ class GEEProgMainWindow(tk.Tk):
         )
         self.bind_all("<%s-o>" % (COMMAND_KEY,), self.open)
         self.menu_file.add_command(
-            label="Save...",
-            command=self.save,
+            label="Save Binary...",
+            command=self.save_binary,
             accelerator='%s-S' % (COMMAND_KEY,)
         )
-        self.bind_all("<%s-s>" % (COMMAND_KEY,), self.save)
+        self.bind_all("<%s-s>" % (COMMAND_KEY,), self.save_binary)
+        self.menu_file.add_command(
+            label="Save Hex Text...",
+            command=self.save_hex,
+            accelerator='%s-Shift-S' % (COMMAND_KEY,)
+        )
+        self.bind_all("<%s-Shift-S>" % (COMMAND_KEY,), self.save_hex)
         
         self.menu_edit = tk.Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_edit, label='Edit')
@@ -686,27 +692,45 @@ class GEEProgMainWindow(tk.Tk):
         self.hex_canvas.render_data()
         self.status_box.update_status("Read complete.", "green")
     
-    def save(self, event=None):
-        """Save the data to a file.
+    def save_binary(self, event=None):
+        """Save the data as a raw binary dump.
         """
-        filepath = tkFileDialog.asksaveasfilename(
-            defaultextension='.bin',
-            filetypes=[
-                ('Binary file', '.bin'),
-                ('Hex text file', ('.txt', '.hex'))
-            ]
-        )
+        self.save(binary=True)
+    
+    def save_hex(self, event=None):
+        """Save the data as hexadecimal text.
+        """
+        self.save(binary=False)
+    
+    def save(self, binary=True):
+        """Ask for a filename and save the data in the requested format.
+        """
+        if binary:
+            filepath = tkFileDialog.asksaveasfilename(
+                defaultextension='.bin',
+                filetypes=[('Binary file', '.bin'), ('All files', '*')]
+            )
+        else:
+            filepath = tkFileDialog.asksaveasfilename(
+                defaultextension='.txt',
+                filetypes=[('Hex text file', ('.txt', '.hex')), ('All files', '*')]
+            )
         if filepath:
-            self.save_file(filepath)
+            self.save_file(filepath, binary=binary)
         else:
             self.status_box.update_status("No file selected!", "white")
     
-    def save_file(self, filepath):
+    def save_file(self, filepath, binary=None):
         """Save the data to a file.
+        
+        binary selects the format outright; when it is None the format is
+        taken from the file extension (.txt and .hex are text).
         """
         base, ext = os.path.splitext(filepath)
         num_chars = self.buffer_num_chars()
-        if ext.lower() == '.txt' or ext.lower() == '.hex':
+        if binary is None:
+            binary = ext.lower() not in ('.txt', '.hex')
+        if not binary:
             with open(filepath, 'w') as outfile:
                 outfile.write("".join(self.data[:num_chars]))
             status = "Wrote %d hex characters of text." % (num_chars,)
