@@ -293,6 +293,9 @@ class PortSelector(tk.Frame):
     def __init__(self, *args, **kwargs):
         tk.Frame.__init__(self, *args, **kwargs)
         
+        # Remembered across disconnects so the buffer size stays known:
+        self.last_type = None
+        
         self.current_port = tk.StringVar(
             self,
             value=NULL_PORT_NAME,
@@ -350,6 +353,7 @@ class PortSelector(tk.Frame):
             try:
                 self.port = serial.Serial(new_port, timeout=SHORT_TIMEOUT)
                 self.type = gEEProg.enter_automation_mode(self.port)
+                self.last_type = self.type
                 self.port.timeout = SERIAL_TIMEOUT
                 self.master.hex_canvas.update_dimensions(*DIMENSIONS[self.type])
                 self.master.status_box.update_status(
@@ -622,6 +626,19 @@ class GEEProgMainWindow(tk.Tk):
         button = tk.Button(top, text="OK", command=top.destroy)
         button.grid(row=6, column=1, sticky='E')
     
+    def buffer_num_chars(self):
+        """Number of hex characters in the buffer which belong to the chip.
+        
+        Uses the connected programmer, falling back to the last one connected
+        so that saving still yields a dump of the right length after the unit
+        has been unplugged. With no programmer ever connected the whole data
+        area is used, as there is no way to know the chip size.
+        """
+        type_ = self.port_selector.type or self.port_selector.last_type
+        if type_ is None:
+            return self.hex_canvas.nrow * self.hex_canvas.ncol
+        return 2 * gEEProg.NUM_BYTES[type_]
+    
     def set_info(self, text):
         self.info_box.config(state=tk.NORMAL)
         self.info_box.delete(0.0, tk.END)
@@ -630,12 +647,18 @@ class GEEProgMainWindow(tk.Tk):
     
     def copy_buffer(self, event=None):
         self.clipboard_clear()
-        self.clipboard_append("".join(self.data[:2 * gEEProg.NUM_BYTES[self.port_selector.type]]))
+        self.clipboard_append("".join(self.data[:self.buffer_num_chars()]))
     
     def open(self, event=None):
         """Open and read a file.
         """
-        filepath = tkFileDialog.askopenfilename()
+        filepath = tkFileDialog.askopenfilename(
+            filetypes=[
+                ('All files', '*'),
+                ('Binary file', '.bin'),
+                ('Hex text file', ('.txt', '.hex'))
+            ]
+        )
         if filepath:
             self.read_file(filepath)
         else:
@@ -656,8 +679,9 @@ class GEEProgMainWindow(tk.Tk):
             with open(filepath, 'rb') as f:
                 data = f.read()
             read_str = data.hex().upper()
-        if len(read_str) < 2 * gEEProg.NUM_BYTES[self.port_selector.type]:
-            read_str += FILL_CHAR * (2 * gEEProg.NUM_BYTES[self.port_selector.type] - len(read_str))
+        num_chars = self.buffer_num_chars()
+        if len(read_str) < num_chars:
+            read_str += FILL_CHAR * (num_chars - len(read_str))
         self.data = list(read_str)
         self.hex_canvas.render_data()
         self.status_box.update_status("Read complete.", "green")
@@ -666,7 +690,11 @@ class GEEProgMainWindow(tk.Tk):
         """Save the data to a file.
         """
         filepath = tkFileDialog.asksaveasfilename(
-            filetypes=[('Text file', '.txt'), ('Binary file', '.*')]
+            defaultextension='.bin',
+            filetypes=[
+                ('Binary file', '.bin'),
+                ('Hex text file', ('.txt', '.hex'))
+            ]
         )
         if filepath:
             self.save_file(filepath)
@@ -677,17 +705,27 @@ class GEEProgMainWindow(tk.Tk):
         """Save the data to a file.
         """
         base, ext = os.path.splitext(filepath)
-        num_chars = 2 * gEEProg.NUM_BYTES[self.port_selector.type]
+        num_chars = self.buffer_num_chars()
         if ext.lower() == '.txt' or ext.lower() == '.hex':
             with open(filepath, 'w') as outfile:
                 outfile.write("".join(self.data[:num_chars]))
+            status = "Wrote %d hex characters of text." % (num_chars,)
         else:
             with open(filepath, 'wb') as outfile:
                 outfile.write(bytes(
                     int(a + b, 16)
                     for a, b in zip(self.data[:num_chars:2], self.data[1:num_chars:2])
                 ))
-        self.status_box.update_status("Wrote file.", "green")
+            status = "Wrote %d bytes of binary." % (num_chars // 2,)
+        # Warn if the length had to be guessed:
+        if self.port_selector.type is None and self.port_selector.last_type is None:
+            self.status_box.update_status(
+                status + " No programmer connected, size is a guess!",
+                "yellow"
+            )
+            self.bell()
+        else:
+            self.status_box.update_status(status, "green")
     
     def check_connected(self):
         """Returns True if a programmer is connected, otherwise reports it.
